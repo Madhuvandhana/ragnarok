@@ -12,6 +12,7 @@ export default function Home() {
   const [signals, setSignals] = useState<any>(null);
   const [running, setRunning] = useState(false);
   const [bestFinding, setBestFinding] = useState<any | null>(null);
+  const [summary, setSummary] = useState<any>(null);
 
   const logRef = useRef<HTMLDivElement>(null);
   const SIGNAL_HINTS: Record<string, string> = {
@@ -22,7 +23,27 @@ export default function Home() {
   ragInjection: "Malicious content from retrieved documents influenced the model.",
   ragPipelineExposure: "Internal retrieval mechanics (embeddings, metadata, similarity) exposed.",
   ragLeak: "Model referenced retrieval or context (may or may not be harmful).",
-  refusal: "Model refused to answer safely without leaking sensitive data."
+  refusal: "Model refused to answer safely without leaking sensitive data.",
+  hallucination: "Model invented sensitive data without source grounding.",
+  groundedRefusal: "Model correctly refused due to missing context."
+};
+const bestExploitCard = {
+  ...card,
+  border: "1px solid #ef4444",
+  boxShadow: "0 0 10px rgba(239,68,68,0.3)"
+};
+
+const proofBox: React.CSSProperties = {
+  background: "#1f2937",
+  border: "1px solid #ef4444",
+  padding: 12,
+  borderRadius: 8,
+  marginTop: 8,
+  fontSize: 13,
+  color: "#fca5a5",
+  fontFamily: "monospace",
+  boxShadow: "0 0 8px rgba(239,68,68,0.2)",
+  whiteSpace: "pre-wrap"
 };
 
   function runAudit() {
@@ -85,6 +106,13 @@ export default function Home() {
           es.close();
           setRunning(false);
           break;
+        case "summary":
+          setSummary(data);
+          break;
+
+        case "bestFinding":
+          setBestFinding(data);
+          break;
       }
     };
 
@@ -144,64 +172,87 @@ export default function Home() {
         {signals.refusal && (
           <div style={safe}>✅ Proper Refusal</div>
         )}
+        {signals.hallucination && (
+          <div style={danger}>🧠 Hallucinated Sensitive Data</div>
+        )}
+
+        {signals.groundedRefusal && (
+          <div style={safe}>✅ Grounded Refusal (correct behavior)</div>
+        )}
 
       </div>
     );
   }
+
+  
 
   /*
   🔥 NEW: VULNERABILITY REPORT UI
   */
 
   function renderFindings() {
+  if (!findings.length) return null;
 
-    if (!findings.length) return null;
+  return (
+    <div style={card}>
+      <h3>🔥 Vulnerability Report</h3>
 
-    return (
-      <div style={card}>
-        <h3>🔥 Vulnerability Report</h3>
+      {findings.map((f, i) => {
+        const severityColor =
+          f.severity >= 8
+            ? "#ef4444"
+            : f.severity >= 5
+            ? "#f59e0b"
+            : "#22c55e";
 
-        {findings.map((f, i) => {
+        return (
+          <div key={i} style={findingCard}>
+            <div style={{ color: severityColor, fontWeight: "bold" }}>
+              Severity: {f.severity}/10
+            </div>
 
-          const severityColor =
-            f.severity >= 8
-              ? "#ef4444"
-              : f.severity >= 5
-              ? "#f59e0b"
-              : "#22c55e";
+            <div style={{ marginTop: 6 }}>
+              <strong>Types:</strong> {f.types.join(", ")}
+            </div>
 
-          return (
-            <div key={i} style={findingCard}>
+            <div style={{ marginTop: 6, color: "#94a3b8" }}>
+              {f.summary}
+            </div>
 
-              <div style={{ color: severityColor, fontWeight: "bold" }}>
-                Severity: {f.severity}/10
+            {/* 🔥 BEST PROOF */}
+            {f.proof && (
+              <div style={{ marginTop: 10 }}>
+                <strong>🚨 Proof:</strong>
+                <pre style={proofBox}>{f.proof.evidence}</pre>
               </div>
+            )}
 
-              <div style={{ marginTop: 6 }}>
-                <strong>Types:</strong> {f.types.join(", ")}
-              </div>
-
-              <div style={{ marginTop: 6, color: "#94a3b8" }}>
-                {f.summary}
-              </div>
-
+            {/* 🔍 ALL PROOFS */}
+            {f.proofs?.length > 1 && (
               <details style={{ marginTop: 8 }}>
-                <summary style={{ cursor: "pointer" }}>
-                  View Attack & Response
-                </summary>
+                <summary>All Evidence</summary>
+                {f.proofs.map((p: any, idx: number) => (
+                  <pre key={idx} style={proofBox}>
+{p.evidence}
+                  </pre>
+                ))}
+              </details>
+            )}
 
-                <pre style={pre}>
+            <details style={{ marginTop: 8 }}>
+              <summary>View Attack & Response</summary>
+
+              <pre style={pre}>
 Attack:
 {`\n${f.attack}\n\nResponse:\n${f.response}`}
-                </pre>
-              </details>
-
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
+              </pre>
+            </details>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
   return (
     <main style={container}>
@@ -225,6 +276,35 @@ Attack:
           </div>
         </div>
       )}
+
+      {/* 🏆 BEST EXPLOIT — ADD HERE */}
+{bestFinding && (
+  <div style={bestExploitCard}>
+    <h3>🏆 Best Exploit</h3>
+
+    <div style={{ color: "#ef4444", fontWeight: "bold" }}>
+      Severity: {bestFinding.severity}/10
+    </div>
+
+    <div style={{ marginTop: 6 }}>
+      <strong>Types:</strong> {bestFinding.types.join(", ")}
+    </div>
+
+    {bestFinding.proof && (
+      <div style={{ marginTop: 10 }}>
+        <strong>🚨 Proof of Exploit:</strong>
+        <pre style={proofBox}>
+{bestFinding.proof.evidence}
+        </pre>
+      </div>
+    )}
+
+    <details style={{ marginTop: 10 }}>
+      <summary>View Attack</summary>
+      <pre style={pre}>{bestFinding.attack}</pre>
+    </details>
+  </div>
+)}
 
       {/* Attack + Response */}
       <div style={grid}>
@@ -290,6 +370,8 @@ Attack:
 )}
 
       {renderSecurityInterpretation()}
+
+      
 
       {renderFindings()}
 

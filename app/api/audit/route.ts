@@ -2,10 +2,8 @@ import { buildRedTeamGraph } from "@/agent/redTeamAgent";
 import { calculateSecurityScore } from "@/lib/securityScore";
 
 export async function GET() {
-
   const stream = new ReadableStream({
     async start(controller) {
-
       const encoder = new TextEncoder();
 
       const send = (type: string, data: any) => {
@@ -17,7 +15,6 @@ export async function GET() {
       };
 
       try {
-
         const graph = buildRedTeamGraph();
 
         const initialState = {
@@ -34,14 +31,14 @@ export async function GET() {
         });
 
         /*
-        Logs
+        📜 Logs
         */
         result.logs?.forEach((log: string) => {
           send("log", log);
         });
 
         /*
-        Attack + Response
+        ⚔️ Attack + Response
         */
         if (result.attackPrompt) {
           send("attack", result.attackPrompt);
@@ -52,45 +49,70 @@ export async function GET() {
         }
 
         /*
-        Signals
+        🔍 Signals (latest)
         */
         if (result.securitySignals?.length) {
-          send(
-            "signals",
-            result.securitySignals[result.securitySignals.length - 1]
-          );
+          const latestSignals =
+            result.securitySignals[result.securitySignals.length - 1];
+
+          send("signals", latestSignals);
         }
 
         /*
-        🔥 Structured Findings
+        🔥 Structured Findings (HIGH-SIGNAL ONLY)
         */
         if (result.findings?.length) {
+          const realFindings = result.findings.filter(
+            (f: any) => f?.isReal
+          );
 
-          result.findings.forEach((f: any) => {
-            send("finding", f);
+          realFindings.forEach((f: any) => {
+            send("finding", {
+              severity: f.severity,
+              types: f.types,
+              summary: f.summary,
+              proof: f.bestProof || null, // ✅ highlight best proof
+              proofs: f.proofs || [],     // full evidence
+              attack: f.attack
+            });
           });
-
-        }
-
-         /*
-        🏆 BEST EXPLOIT
-        */
-        if (result.bestFinding) {
-          send("bestFinding", result.bestFinding);
         }
 
         /*
-        🔥 Score (based on severity)
+        🏆 BEST EXPLOIT (WITH PROOF)
         */
-        const score = calculateSecurityScore(result.findings || []);
+        if (result.bestFinding) {
+          send("bestFinding", {
+            severity: result.bestFinding.severity,
+            types: result.bestFinding.types,
+            summary: result.bestFinding.summary,
+            proof: result.bestFinding.bestProof || null,
+            attack: result.bestFinding.attack
+          });
+        }
+
+        /*
+        📊 Score (based on REAL findings only)
+        */
+        const score = calculateSecurityScore(
+          (result.findings || []).filter((f: any) => f?.isReal)
+        );
+
         send("score", score);
 
+        /*
+        📈 Summary (NEW - very useful for UI)
+        */
+        send("summary", {
+          totalFindings: result.findings?.length || 0,
+          realFindings:
+            result.findings?.filter((f: any) => f?.isReal).length || 0,
+          maxSeverity: result.bestFinding?.severity || 0
+        });
+
         send("done", "Audit complete");
-
       } catch (err: any) {
-
         send("error", err?.message || "Unknown error");
-
       }
 
       controller.close();
