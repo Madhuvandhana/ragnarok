@@ -1,5 +1,6 @@
 import { buildRedTeamGraph } from "@/agent/redTeamAgent";
 import { calculateSecurityScore } from "@/lib/securityScore";
+import { formatGitHubReport } from "@/lib/githubReport";
 
 export async function GET() {
   const stream = new ReadableStream({
@@ -59,55 +60,94 @@ export async function GET() {
         }
 
         /*
-        🔥 Structured Findings (HIGH-SIGNAL ONLY)
+        🔥 Structured Findings (ONLY REAL + ENRICHED)
         */
-        if (result.findings?.length) {
-          const realFindings = result.findings.filter(
-            (f: any) => f?.isReal
-          );
-
-          realFindings.forEach((f: any) => {
-            send("finding", {
-              severity: f.severity,
-              types: f.types,
-              summary: f.summary,
-              proof: f.bestProof || null, // ✅ highlight best proof
-              proofs: f.proofs || [],     // full evidence
-              attack: f.attack
-            });
-          });
-        }
-
-        /*
-        🏆 BEST EXPLOIT (WITH PROOF)
-        */
-        if (result.bestFinding) {
-          send("bestFinding", {
-            severity: result.bestFinding.severity,
-            types: result.bestFinding.types,
-            summary: result.bestFinding.summary,
-            proof: result.bestFinding.bestProof || null,
-            attack: result.bestFinding.attack
-          });
-        }
-
-        /*
-        📊 Score (based on REAL findings only)
-        */
-        const score = calculateSecurityScore(
-          (result.findings || []).filter((f: any) => f?.isReal)
+        const realFindings = (result.findings || []).filter(
+          (f: any) => f?.isReal
         );
 
+        realFindings.forEach((f: any) => {
+          send("finding", {
+            severity: f.severity,
+            types: f.types,
+            summary: f.summary,
+
+            proof: f.bestProof || null,
+            proofs: f.proofs || [],
+
+            attack: f.attack,
+
+            // 🔥 NEW IMPORTANT FIELDS
+            classification: f.classification || "confirmed_exploit",
+            reproducibility: f.reproducibility || null,
+
+            // helpful flags for UI
+            hasEnvLeak: f.types?.includes("Sensitive Data Exposure"),
+            hasProcessLeak: f.types?.includes("System Process Leakage")
+          });
+        });
+
+        /*
+        🏆 BEST EXPLOIT (SAFE + NORMALIZED)
+        */
+        if (result.bestFinding) {
+          const bf = result.bestFinding;
+
+          send("bestFinding", {
+            severity: bf.severity,
+            types: bf.types,
+            summary: bf.summary,
+
+            proof: bf.bestProof || null,
+            attack: bf.attack,
+
+            reproducibility: bf.reproducibility || null,
+            classification: bf.classification || "attempt_only",
+
+            // 🔥 normalize "fake strong" findings
+            isReal: bf.isReal ?? false
+          });
+
+          const report = formatGitHubReport(result.bestFinding);
+
+          send("githubReport", report);
+        }
+
+        /*
+        📊 Score (ONLY REAL findings)
+        */
+        const score = calculateSecurityScore(realFindings);
         send("score", score);
 
         /*
-        📈 Summary (NEW - very useful for UI)
+        📈 Summary (ENHANCED)
         */
+        const best = result.bestFinding;
+
         send("summary", {
           totalFindings: result.findings?.length || 0,
-          realFindings:
-            result.findings?.filter((f: any) => f?.isReal).length || 0,
-          maxSeverity: result.bestFinding?.severity || 0
+          realFindings: realFindings.length,
+
+          maxSeverity: best?.severity || 0,
+
+          // 🔥 NEW
+          confirmedExploits: realFindings.filter(
+            (f: any) => f.classification === "confirmed_exploit"
+          ).length,
+
+          attemptedOnly: realFindings.filter(
+            (f: any) => f.classification === "attempt_only"
+          ).length,
+
+          hasEnvLeaks: realFindings.some((f: any) =>
+            f.types?.includes("Sensitive Data Exposure")
+          ),
+
+          hasProcessLeaks: realFindings.some((f: any) =>
+            f.types?.includes("System Process Leakage")
+          ),
+
+          reproducibility: best?.reproducibility || null
         });
 
         send("done", "Audit complete");

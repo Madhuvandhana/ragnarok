@@ -13,6 +13,7 @@ export default function Home() {
   const [running, setRunning] = useState(false);
   const [bestFinding, setBestFinding] = useState<any | null>(null);
   const [summary, setSummary] = useState<any>(null);
+  const [githubReport, setGithubReport] = useState<string | null>(null);
 
   const logRef = useRef<HTMLDivElement>(null);
   const SIGNAL_HINTS: Record<string, string> = {
@@ -47,7 +48,7 @@ const proofBox: React.CSSProperties = {
 };
 
   function runAudit() {
-
+    setGithubReport(null);
     setLogs([]);
     setScore(null);
     setFindings([]);
@@ -68,9 +69,9 @@ const proofBox: React.CSSProperties = {
         case "log":
           setLogs(prev => {
             const updated = [...prev, data];
-            setTimeout(() => {
+            requestAnimationFrame(() => {
               logRef.current?.scrollTo(0, logRef.current.scrollHeight);
-            }, 10);
+            });
             return updated;
           });
           break;
@@ -112,6 +113,10 @@ const proofBox: React.CSSProperties = {
 
         case "bestFinding":
           setBestFinding(data);
+          break;
+
+        case "githubReport":
+          setGithubReport(data);
           break;
       }
     };
@@ -187,10 +192,10 @@ const proofBox: React.CSSProperties = {
   
 
   /*
-  🔥 NEW: VULNERABILITY REPORT UI
+  NEW: VULNERABILITY REPORT UI
   */
 
-  function renderFindings() {
+function renderFindings() {
   if (!findings.length) return null;
 
   return (
@@ -207,17 +212,54 @@ const proofBox: React.CSSProperties = {
 
         return (
           <div key={i} style={findingCard}>
+            {/* Severity */}
             <div style={{ color: severityColor, fontWeight: "bold" }}>
               Severity: {f.severity}/10
             </div>
 
+            {/* Types */}
             <div style={{ marginTop: 6 }}>
               <strong>Types:</strong> {f.types.join(", ")}
             </div>
 
+            {/* Summary */}
             <div style={{ marginTop: 6, color: "#94a3b8" }}>
               {f.summary}
             </div>
+               {f.classification === "attempt_only" && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    display: "inline-block",
+                    background: "#78350f",
+                    color: "#fbbf24",
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    fontSize: 12
+                  }}
+                >
+                  ⚠️ Not Exploitable
+                </div>
+              )}
+
+            {/* 🔥 NEW: Reproducibility */}
+            {f.reproducibility && (
+              <div style={{ marginTop: 8 }}>
+                <strong>Confidence:</strong>{" "}
+                <span style={{ color: "#f59e0b" }}>
+                  {f.reproducibility.confidence?.toUpperCase()}
+                </span>
+
+                <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                  Success: {f.reproducibility.success}/
+                  {f.reproducibility.attempts} (
+                  {(f.reproducibility.successRate * 100).toFixed(0)}%)
+                  {f.reproducibility.deterministicFailures > 0 && (
+                    <> • ⚠ Unstable</>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* 🔥 BEST PROOF */}
             {f.proof && (
@@ -239,13 +281,22 @@ const proofBox: React.CSSProperties = {
               </details>
             )}
 
+            {/* Attack + Response */}
             <details style={{ marginTop: 8 }}>
               <summary>View Attack & Response</summary>
 
               <pre style={pre}>
 Attack:
-{`\n${f.attack}\n\nResponse:\n${f.response}`}
+{`\n${f.attack}`}
               </pre>
+
+              {/*only render response if present */}
+              {f.response && (
+                <pre style={pre}>
+              Response:
+              {`\n${f.response}`}
+                </pre>
+              )}
             </details>
           </div>
         );
@@ -277,6 +328,23 @@ Attack:
         </div>
       )}
 
+      {summary && (
+  <div style={card}>
+    <h3>📊 Audit Summary</h3>
+
+    <div>Total Findings: {summary.totalFindings}</div>
+    <div>Real Vulnerabilities: {summary.realFindings}</div>
+    <div>Max Severity: {summary.maxSeverity}</div>
+
+    {summary.reproducibility && (
+      <div style={{ marginTop: 10 }}>
+        <strong>Reproducibility:</strong>{" "}
+        {summary.reproducibility.confidence?.toUpperCase() || "N/A"}
+      </div>
+    )}
+  </div>
+)}
+
       {/* 🏆 BEST EXPLOIT — ADD HERE */}
 {bestFinding && (
   <div style={bestExploitCard}>
@@ -289,6 +357,22 @@ Attack:
     <div style={{ marginTop: 6 }}>
       <strong>Types:</strong> {bestFinding.types.join(", ")}
     </div>
+
+    {/* 🔥 NEW: reproducibility */}
+    {bestFinding.reproducibility && (
+      <div style={{ marginTop: 8 }}>
+        <strong>Confidence:</strong>{" "}
+        <span style={{ color: "#f59e0b" }}>
+          {bestFinding.reproducibility.confidence?.toUpperCase()}
+        </span>
+        <br />
+        <small style={{ color: "#94a3b8" }}>
+          Success: {bestFinding.reproducibility.success}/
+          {bestFinding.reproducibility.attempts} (
+          {(bestFinding.reproducibility.successRate * 100).toFixed(0)}%)
+        </small>
+      </div>
+    )}
 
     {bestFinding.proof && (
       <div style={{ marginTop: 10 }}>
@@ -305,6 +389,43 @@ Attack:
     </details>
   </div>
 )}
+
+    {githubReport && (
+      <div style={card}>
+        <h3>📄 GitHub Security Report</h3>
+
+        <textarea
+          value={githubReport}
+          readOnly
+          style={{
+            width: "100%",
+            height: 260,
+            background: "#020617",
+            color: "#e2e8f0",
+            border: "1px solid #1e293b",
+            padding: 10,
+            borderRadius: 6,
+            fontSize: 12,
+            fontFamily: "monospace"
+          }}
+        />
+
+        <button
+          onClick={() => navigator.clipboard.writeText(githubReport)}
+          style={{
+            marginTop: 10,
+            padding: "8px 14px",
+            borderRadius: 6,
+            border: "none",
+            background: "#6366f1",
+            color: "white",
+            cursor: "pointer"
+          }}
+        >
+          📋 Copy Report
+        </button>
+      </div>
+    )}
 
       {/* Attack + Response */}
       <div style={grid}>
@@ -333,9 +454,8 @@ Attack:
     {Object.entries(signals).map(([key, value]) => {
 
       const active = Boolean(value);
-
       const color = active
-        ? key === "refusal"
+        ? key === "refusal" || key === "groundedRefusal"
           ? "#22c55e"
           : "#ef4444"
         : "#475569";
