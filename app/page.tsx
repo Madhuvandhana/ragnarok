@@ -3,7 +3,6 @@
 import { useState, useRef } from "react";
 
 export default function Home() {
-
   const [logs, setLogs] = useState<string[]>([]);
   const [score, setScore] = useState<number | null>(null);
   const [findings, setFindings] = useState<any[]>([]);
@@ -14,38 +13,28 @@ export default function Home() {
   const [bestFinding, setBestFinding] = useState<any | null>(null);
   const [summary, setSummary] = useState<any>(null);
   const [githubReport, setGithubReport] = useState<string | null>(null);
+  const [provider, setProvider] = useState<"openclaw" | "openai">("openclaw");
 
   const logRef = useRef<HTMLDivElement>(null);
-  const SIGNAL_HINTS: Record<string, string> = {
-  injectionAttempt: "User prompt attempts to override instructions or extract hidden data.",
-  systemLeak: "Model exposed system-level instructions or hidden configuration.",
-  policyEcho: "Model revealed internal policies (partial leakage of system behavior).",
-  ragDataExposure: "Retrieved documents or hidden knowledge base content were exposed.",
-  ragInjection: "Malicious content from retrieved documents influenced the model.",
-  ragPipelineExposure: "Internal retrieval mechanics (embeddings, metadata, similarity) exposed.",
-  ragLeak: "Model referenced retrieval or context (may or may not be harmful).",
-  refusal: "Model refused to answer safely without leaking sensitive data.",
-  hallucination: "Model invented sensitive data without source grounding.",
-  groundedRefusal: "Model correctly refused due to missing context."
-};
-const bestExploitCard = {
-  ...card,
-  border: "1px solid #ef4444",
-  boxShadow: "0 0 10px rgba(239,68,68,0.3)"
-};
 
-const proofBox: React.CSSProperties = {
-  background: "#1f2937",
-  border: "1px solid #ef4444",
-  padding: 12,
-  borderRadius: 8,
-  marginTop: 8,
-  fontSize: 13,
-  color: "#fca5a5",
-  fontFamily: "monospace",
-  boxShadow: "0 0 8px rgba(239,68,68,0.2)",
-  whiteSpace: "pre-wrap"
-};
+  const SIGNAL_HINTS: Record<string, string> = {
+    injectionAttempt: "Prompt attempts to override instructions.",
+    systemLeak: "System prompt or hidden instructions leaked.",
+    policyEcho: "Internal policy exposure.",
+    ragDataExposure: "Retrieved data leaked.",
+    ragInjection: "Retrieval influenced by malicious content.",
+    ragPipelineExposure: "Embedding / metadata exposed.",
+
+    envLeak: "API keys / env variables exposed.",
+    secretExposure: "Sensitive credentials exposed.",
+    fileSystemAccess: "Filesystem data accessed.",
+    exfiltrationAttempt: "Explicit data dump attempt.",
+    processLeak: "System processes exposed.",
+
+    refusal: "Safe refusal.",
+    hallucination: "Fabricated sensitive data.",
+    groundedRefusal: "Correct refusal (no access)."
+  };
 
   function runAudit() {
     setGithubReport(null);
@@ -60,14 +49,11 @@ const proofBox: React.CSSProperties = {
     const es = new EventSource("/api/audit");
 
     es.onmessage = (event) => {
-
-      const parsed = JSON.parse(event.data);
-      const { type, data } = parsed;
+      const { type, data } = JSON.parse(event.data);
 
       switch (type) {
-
         case "log":
-          setLogs(prev => {
+          setLogs((prev) => {
             const updated = [...prev, data];
             requestAnimationFrame(() => {
               logRef.current?.scrollTo(0, logRef.current.scrollHeight);
@@ -93,20 +79,9 @@ const proofBox: React.CSSProperties = {
           break;
 
         case "finding":
-          setFindings(prev => [...prev, data]);
-          break;
-          
-
-        case "done":
-          es.close();
-          setRunning(false);
+          setFindings((prev) => [...prev, data]);
           break;
 
-        case "error":
-          console.error(data);
-          es.close();
-          setRunning(false);
-          break;
         case "summary":
           setSummary(data);
           break;
@@ -117,6 +92,17 @@ const proofBox: React.CSSProperties = {
 
         case "githubReport":
           setGithubReport(data);
+          break;
+
+        case "done":
+          es.close();
+          setRunning(false);
+          break;
+
+        case "error":
+          console.error(data);
+          es.close();
+          setRunning(false);
           break;
       }
     };
@@ -136,459 +122,166 @@ const proofBox: React.CSSProperties = {
       ? "#f59e0b"
       : "#ef4444";
 
-  /*
-  🧠 INTERPRETATION PANEL
-  */
-
-  function renderSecurityInterpretation() {
-
-    if (!signals) return null;
+  function renderFindings() {
+    if (!findings.length) return null;
 
     return (
       <div style={card}>
-        <h3>🧠 Attack Analysis</h3>
+        <h3>🔥 Vulnerability Report</h3>
 
-        {signals.injectionAttempt && (
-          <div style={warning}>🎯 Prompt Injection Attempt</div>
-        )}
+        {findings.map((f, i) => {
+          const severityColor =
+            f.severity >= 8
+              ? "#ef4444"
+              : f.severity >= 5
+              ? "#f59e0b"
+              : "#22c55e";
 
-        {signals.ragInjection && (
-          <div style={danger}>☠ RAG Injection (retrieval exploited)</div>
-        )}
+          return (
+            <div key={i} style={findingCard}>
+              <div style={{ color: severityColor, fontWeight: "bold" }}>
+                Severity: {f.severity}/10
+              </div>
 
-        {signals.ragDataExposure && (
-          <div style={danger}>🚨 Data Exfiltration (documents leaked)</div>
-        )}
+              <div>
+                <strong>Types:</strong> {f.types.join(", ")}
+              </div>
 
-        {signals.systemLeak && (
-          <div style={danger}>🚨 System Prompt Leakage</div>
-        )}
+              <div style={{ color: "#94a3b8" }}>{f.summary}</div>
 
-        {signals.ragPipelineExposure && (
-          <div style={warning}>
-            ⚠ Pipeline Exposure (embedding / metadata / similarity)
-          </div>
-        )}
+              {/* classification */}
+              {f.classification === "attempt_only" && (
+                <div style={badge}>⚠️ Not Exploitable</div>
+              )}
 
-        {signals.policyEcho && (
-          <div style={warning}>⚠ Policy Exposure</div>
-        )}
+              {/* flags */}
+              <div style={{ fontSize: 12 }}>
+                {f.hasEnvLeak && "🔑 "}
+                {f.hasSecretExposure && "🗝 "}
+                {f.hasFileAccess && "📂 "}
+                {f.hasProcessLeak && "🖥 "}
+                {f.hasExfiltration && "📤 "}
+              </div>
 
-        {signals.refusal && (
-          <div style={safe}>✅ Proper Refusal</div>
-        )}
-        {signals.hallucination && (
-          <div style={danger}>🧠 Hallucinated Sensitive Data</div>
-        )}
+              {/* reproducibility */}
+              {f.reproducibility && (
+                <div>
+                  <strong>Confidence:</strong>{" "}
+                  {f.reproducibility.confidence?.toUpperCase()}
+                </div>
+              )}
 
-        {signals.groundedRefusal && (
-          <div style={safe}>✅ Grounded Refusal (correct behavior)</div>
-        )}
+              {/* proof */}
+              {f.proof && (
+                <pre style={proofBox}>{f.proof.evidence}</pre>
+              )}
 
+              <details>
+                <summary>View Attack</summary>
+                <pre style={pre}>{f.attack}</pre>
+                {f.response && <pre style={pre}>{f.response}</pre>}
+              </details>
+            </div>
+          );
+        })}
       </div>
     );
   }
 
-  
-
-  /*
-  NEW: VULNERABILITY REPORT UI
-  */
-
-function renderFindings() {
-  if (!findings.length) return null;
-
-  return (
-    <div style={card}>
-      <h3>🔥 Vulnerability Report</h3>
-
-      {findings.map((f, i) => {
-        const severityColor =
-          f.severity >= 8
-            ? "#ef4444"
-            : f.severity >= 5
-            ? "#f59e0b"
-            : "#22c55e";
-
-        return (
-          <div key={i} style={findingCard}>
-            {/* Severity */}
-            <div style={{ color: severityColor, fontWeight: "bold" }}>
-              Severity: {f.severity}/10
-            </div>
-
-            {/* Types */}
-            <div style={{ marginTop: 6 }}>
-              <strong>Types:</strong> {f.types.join(", ")}
-            </div>
-
-            {/* Summary */}
-            <div style={{ marginTop: 6, color: "#94a3b8" }}>
-              {f.summary}
-            </div>
-               {f.classification === "attempt_only" && (
-                <div
-                  style={{
-                    marginTop: 6,
-                    display: "inline-block",
-                    background: "#78350f",
-                    color: "#fbbf24",
-                    padding: "4px 8px",
-                    borderRadius: 6,
-                    fontSize: 12
-                  }}
-                >
-                  ⚠️ Not Exploitable
-                </div>
-              )}
-
-            {/* 🔥 NEW: Reproducibility */}
-            {f.reproducibility && (
-              <div style={{ marginTop: 8 }}>
-                <strong>Confidence:</strong>{" "}
-                <span style={{ color: "#f59e0b" }}>
-                  {f.reproducibility.confidence?.toUpperCase()}
-                </span>
-
-                <div style={{ fontSize: 12, color: "#94a3b8" }}>
-                  Success: {f.reproducibility.success}/
-                  {f.reproducibility.attempts} (
-                  {(f.reproducibility.successRate * 100).toFixed(0)}%)
-                  {f.reproducibility.deterministicFailures > 0 && (
-                    <> • ⚠ Unstable</>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* 🔥 BEST PROOF */}
-            {f.proof && (
-              <div style={{ marginTop: 10 }}>
-                <strong>🚨 Proof:</strong>
-                <pre style={proofBox}>{f.proof.evidence}</pre>
-              </div>
-            )}
-
-            {/* 🔍 ALL PROOFS */}
-            {f.proofs?.length > 1 && (
-              <details style={{ marginTop: 8 }}>
-                <summary>All Evidence</summary>
-                {f.proofs.map((p: any, idx: number) => (
-                  <pre key={idx} style={proofBox}>
-{p.evidence}
-                  </pre>
-                ))}
-              </details>
-            )}
-
-            {/* Attack + Response */}
-            <details style={{ marginTop: 8 }}>
-              <summary>View Attack & Response</summary>
-
-              <pre style={pre}>
-Attack:
-{`\n${f.attack}`}
-              </pre>
-
-              {/*only render response if present */}
-              {f.response && (
-                <pre style={pre}>
-              Response:
-              {`\n${f.response}`}
-                </pre>
-              )}
-            </details>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
   return (
     <main style={container}>
-
       <h1>🛡 AI Red-Team Dashboard</h1>
 
-      <button
-        onClick={runAudit}
-        disabled={running}
-        style={button(running)}
-      >
-        {running ? "Running Security Audit..." : "Start Security Audit"}
+      <button onClick={runAudit} disabled={running} style={button(running)}>
+        {running ? "Running..." : "Start Audit"}
       </button>
 
-      {/* Score */}
+      <div style={{ marginTop: 10 }}>
+    <label style={{ marginRight: 10 }}>Model:</label>
+
+    <select
+      value={provider}
+      onChange={(e) => setProvider(e.target.value as any)}
+      style={{ padding: 6 }}
+    >
+      <option value="openclaw">OpenClaw (Real Agent)</option>
+      <option value="openai">OpenAI (Fast / No Rate Limit)</option>
+    </select>
+  </div>
+
       {score !== null && (
         <div style={card}>
-          <h3>Security Score</h3>
-          <div style={{ fontSize: 32, color: scoreColor }}>
-            {score} / 10
-          </div>
+          <h3>Score</h3>
+          <div style={{ color: scoreColor }}>{score}/10</div>
         </div>
       )}
 
       {summary && (
-  <div style={card}>
-    <h3>📊 Audit Summary</h3>
+        <div style={card}>
+          <h3>📊 Summary</h3>
+          <div>Real: {summary.realFindings}</div>
+          <div>Max Severity: {summary.maxSeverity}</div>
 
-    <div>Total Findings: {summary.totalFindings}</div>
-    <div>Real Vulnerabilities: {summary.realFindings}</div>
-    <div>Max Severity: {summary.maxSeverity}</div>
-
-    {summary.reproducibility && (
-      <div style={{ marginTop: 10 }}>
-        <strong>Reproducibility:</strong>{" "}
-        {summary.reproducibility.confidence?.toUpperCase() || "N/A"}
-      </div>
-    )}
-  </div>
-)}
-
-      {/* 🏆 BEST EXPLOIT — ADD HERE */}
-{bestFinding && (
-  <div style={bestExploitCard}>
-    <h3>🏆 Best Exploit</h3>
-
-    <div style={{ color: "#ef4444", fontWeight: "bold" }}>
-      Severity: {bestFinding.severity}/10
-    </div>
-
-    <div style={{ marginTop: 6 }}>
-      <strong>Types:</strong> {bestFinding.types.join(", ")}
-    </div>
-
-    {/* 🔥 NEW: reproducibility */}
-    {bestFinding.reproducibility && (
-      <div style={{ marginTop: 8 }}>
-        <strong>Confidence:</strong>{" "}
-        <span style={{ color: "#f59e0b" }}>
-          {bestFinding.reproducibility.confidence?.toUpperCase()}
-        </span>
-        <br />
-        <small style={{ color: "#94a3b8" }}>
-          Success: {bestFinding.reproducibility.success}/
-          {bestFinding.reproducibility.attempts} (
-          {(bestFinding.reproducibility.successRate * 100).toFixed(0)}%)
-        </small>
-      </div>
-    )}
-
-    {bestFinding.proof && (
-      <div style={{ marginTop: 10 }}>
-        <strong>🚨 Proof of Exploit:</strong>
-        <pre style={proofBox}>
-{bestFinding.proof.evidence}
-        </pre>
-      </div>
-    )}
-
-    <details style={{ marginTop: 10 }}>
-      <summary>View Attack</summary>
-      <pre style={pre}>{bestFinding.attack}</pre>
-    </details>
-  </div>
-)}
-
-    {githubReport && (
-      <div style={card}>
-        <h3>📄 GitHub Security Report</h3>
-
-        <textarea
-          value={githubReport}
-          readOnly
-          style={{
-            width: "100%",
-            height: 260,
-            background: "#020617",
-            color: "#e2e8f0",
-            border: "1px solid #1e293b",
-            padding: 10,
-            borderRadius: 6,
-            fontSize: 12,
-            fontFamily: "monospace"
-          }}
-        />
-
-        <button
-          onClick={() => navigator.clipboard.writeText(githubReport)}
-          style={{
-            marginTop: 10,
-            padding: "8px 14px",
-            borderRadius: 6,
-            border: "none",
-            background: "#6366f1",
-            color: "white",
-            cursor: "pointer"
-          }}
-        >
-          📋 Copy Report
-        </button>
-      </div>
-    )}
-
-      {/* Attack + Response */}
-      <div style={grid}>
-
-        {attack && (
-          <div style={card}>
-            <h3>⚔️ Attack Prompt</h3>
-            <pre style={pre}>{attack}</pre>
-          </div>
-        )}
-
-        {response && (
-          <div style={card}>
-            <h3>🤖 Model Response</h3>
-            <pre style={pre}>{response}</pre>
-          </div>
-        )}
-
-      </div>
-
-      {/* Signals */}
-    {signals && (
-  <div style={card}>
-    <h3>🚨 Raw Signals (Explained)</h3>
-
-    {Object.entries(signals).map(([key, value]) => {
-
-      const active = Boolean(value);
-      const color = active
-        ? key === "refusal" || key === "groundedRefusal"
-          ? "#22c55e"
-          : "#ef4444"
-        : "#475569";
-
-      return (
-        <div
-          key={key}
-          style={{
-            marginBottom: 8,
-            display: "flex",
-            alignItems: "center",
-            gap: 8
-          }}
-          title={SIGNAL_HINTS[key]} // 👈 hover hint
-        >
-          <span style={{ color }}>
-            {active ? "●" : "○"}
-          </span>
-
-          <strong style={{ color }}>
-            {key}
-          </strong>
-
-          <span style={{ color: "#94a3b8", fontSize: 12 }}>
-            — {SIGNAL_HINTS[key]}
-          </span>
+          <ul>
+            {summary.hasEnvLeaks && <li>🔑 Env Leaks</li>}
+            {summary.hasSecrets && <li>🗝 Secrets</li>}
+            {summary.hasFileSystemAccess && <li>📂 Filesystem</li>}
+            {summary.hasProcessLeaks && <li>🖥 Processes</li>}
+            {summary.hasExfiltration && <li>📤 Exfiltration</li>}
+          </ul>
         </div>
-      );
-    })}
+      )}
 
-  </div>
-)}
+      {/* BEST EXPLOIT */}
+      {bestFinding?.isReal && (
+        <div style={card}>
+          <h3>🏆 Best Exploit</h3>
+          <div>Severity: {bestFinding.severity}</div>
 
-      {renderSecurityInterpretation()}
+          {bestFinding.classification === "attempt_only" && (
+            <div style={badge}>⚠️ Not Exploitable</div>
+          )}
 
-      
+          {bestFinding.proof && (
+            <pre style={proofBox}>{bestFinding.proof.evidence}</pre>
+          )}
+        </div>
+      )}
+
+      {/* GitHub report */}
+      {githubReport && bestFinding?.isReal && (
+        <textarea value={githubReport} readOnly style={reportBox} />
+      )}
 
       {renderFindings()}
 
-      {/* Logs */}
+      {/* logs */}
       <div ref={logRef} style={logBox}>
-        <h3>📜 Agent Logs</h3>
-
-        {logs.length === 0 && (
-          <div style={{ opacity: 0.5 }}>
-            Awaiting agent activity...
-          </div>
-        )}
-
         {logs.map((l, i) => (
-          <div key={i} style={{ color: "#22c55e" }}>
-            {l}
-          </div>
+          <div key={i}>{l}</div>
         ))}
       </div>
-
     </main>
   );
 }
 
-/*
-🎨 Styles
-*/
+/* styles */
 
-const container = {
-  background: "#020617",
-  color: "white",
-  minHeight: "100vh",
-  padding: 40,
-  fontFamily: "system-ui"
+const container = { padding: 40, background: "#020617", color: "white" };
+const card = { marginTop: 20, padding: 16, border: "1px solid #1e293b" };
+const findingCard = { padding: 12, border: "1px solid #1e293b" };
+const proofBox = { background: "#111", padding: 10, fontSize: 12 };
+const pre = { whiteSpace: "pre-wrap", fontSize: 12 };
+const logBox = { height: 200, overflow: "auto" };
+const reportBox = { width: "100%", height: 200 };
+const badge = {
+  background: "#78350f",
+  color: "#fbbf24",
+  padding: "4px 8px",
+  borderRadius: 6,
+  fontSize: 12
 };
-
-const card = {
-  marginTop: 20,
-  padding: 16,
-  borderRadius: 10,
-  border: "1px solid #1e293b",
-  background: "#020617"
-};
-
-const findingCard = {
-  border: "1px solid #1e293b",
-  borderRadius: 8,
-  padding: 12,
-  marginBottom: 12
-};
-
-const grid = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 20,
-  marginTop: 20
-};
-
-const pre = {
-  whiteSpace: "pre-wrap",
-  fontSize: 13
-};
-
-const logBox: React.CSSProperties = {
-  marginTop: 10,
-  height: 300,
-  overflowY: "scroll",
-  background: "#111",
-  padding: 10,
-  borderRadius: 8,
-};
-
-const danger = {
-  color: "#ef4444",
-  fontWeight: 600,
-  marginBottom: 6
-};
-
-const warning = {
-  color: "#f59e0b",
-  fontWeight: 600,
-  marginBottom: 6
-};
-
-const safe = {
-  color: "#22c55e",
-  fontWeight: 600,
-  marginBottom: 6
-};
-
 const button = (running: boolean) => ({
-  marginTop: 10,
-  padding: "12px 20px",
-  borderRadius: 8,
-  border: "none",
-  background: running ? "#334155" : "#22c55e",
-  color: "#020617",
-  fontWeight: 600,
-  cursor: running ? "not-allowed" : "pointer"
+  padding: 10,
+  background: running ? "#444" : "#22c55e"
 });

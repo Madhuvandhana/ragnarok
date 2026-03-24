@@ -2,7 +2,10 @@ import { buildRedTeamGraph } from "@/agent/redTeamAgent";
 import { calculateSecurityScore } from "@/lib/securityScore";
 import { formatGitHubReport } from "@/lib/githubReport";
 
-export async function GET() {
+export async function GET(req: Request) {
+   const { searchParams } = new URL(req.url);
+   const provider =
+    searchParams.get("provider") === "openai" ? "openai" : "openclaw";
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
@@ -24,7 +27,8 @@ export async function GET() {
           iteration: 0,
           attackPrompt: undefined,
           lastResponse: undefined,
-          securitySignals: []
+          securitySignals: [],
+          provider
         };
 
         const result = await graph.invoke(initialState, {
@@ -60,12 +64,15 @@ export async function GET() {
         }
 
         /*
-        🔥 Structured Findings (ONLY REAL + ENRICHED)
+        🔥 ONLY REAL FINDINGS
         */
         const realFindings = (result.findings || []).filter(
           (f: any) => f?.isReal
         );
 
+        /*
+        🔥 Structured Findings
+        */
         realFindings.forEach((f: any) => {
           send("finding", {
             severity: f.severity,
@@ -77,60 +84,63 @@ export async function GET() {
 
             attack: f.attack,
 
-            // 🔥 NEW IMPORTANT FIELDS
             classification: f.classification || "confirmed_exploit",
             reproducibility: f.reproducibility || null,
 
-            // helpful flags for UI
+            // 🔥 expanded flags
             hasEnvLeak: f.types?.includes("Sensitive Data Exposure"),
-            hasProcessLeak: f.types?.includes("System Process Leakage")
+            hasProcessLeak: f.types?.includes("System Process Leakage"),
+            hasFileAccess: f.types?.includes("Filesystem Access"),
+            hasSecretExposure: f.types?.includes("Secret Exposure"),
+            hasExfiltration: f.types?.includes("Exfiltration Attempt")
           });
         });
 
         /*
-        🏆 BEST EXPLOIT (SAFE + NORMALIZED)
+        🏆 BEST EXPLOIT (ONLY IF REAL)
         */
-        if (result.bestFinding) {
-          const bf = result.bestFinding;
+        const best =
+          result.bestFinding && result.bestFinding.isReal
+            ? result.bestFinding
+            : null;
 
+        if (best) {
           send("bestFinding", {
-            severity: bf.severity,
-            types: bf.types,
-            summary: bf.summary,
+            severity: best.severity,
+            types: best.types,
+            summary: best.summary,
 
-            proof: bf.bestProof || null,
-            attack: bf.attack,
+            proof: best.bestProof || null,
+            attack: best.attack,
 
-            reproducibility: bf.reproducibility || null,
-            classification: bf.classification || "attempt_only",
+            reproducibility: best.reproducibility || null,
+            classification: best.classification || "confirmed_exploit",
 
-            // 🔥 normalize "fake strong" findings
-            isReal: bf.isReal ?? false
+            isReal: true
           });
 
-          const report = formatGitHubReport(result.bestFinding);
-
+          /*
+          🐙 GitHub Report (ONLY REAL EXPLOITS)
+          */
+          const report = formatGitHubReport(best);
           send("githubReport", report);
         }
 
         /*
-        📊 Score (ONLY REAL findings)
+        📊 Score (ONLY REAL)
         */
         const score = calculateSecurityScore(realFindings);
         send("score", score);
 
         /*
-        📈 Summary (ENHANCED)
+        📈 Summary (CORRECTED)
         */
-        const best = result.bestFinding;
-
         send("summary", {
           totalFindings: result.findings?.length || 0,
           realFindings: realFindings.length,
 
           maxSeverity: best?.severity || 0,
 
-          // 🔥 NEW
           confirmedExploits: realFindings.filter(
             (f: any) => f.classification === "confirmed_exploit"
           ).length,
@@ -139,12 +149,25 @@ export async function GET() {
             (f: any) => f.classification === "attempt_only"
           ).length,
 
+          // 🔥 expanded coverage signals
           hasEnvLeaks: realFindings.some((f: any) =>
             f.types?.includes("Sensitive Data Exposure")
           ),
 
           hasProcessLeaks: realFindings.some((f: any) =>
             f.types?.includes("System Process Leakage")
+          ),
+
+          hasFileSystemAccess: realFindings.some((f: any) =>
+            f.types?.includes("Filesystem Access")
+          ),
+
+          hasSecrets: realFindings.some((f: any) =>
+            f.types?.includes("Secret Exposure")
+          ),
+
+          hasExfiltration: realFindings.some((f: any) =>
+            f.types?.includes("Exfiltration Attempt")
           ),
 
           reproducibility: best?.reproducibility || null
